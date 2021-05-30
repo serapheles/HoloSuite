@@ -5,21 +5,11 @@ import youtube_dl
 import logging
 import shutil
 import time
+import sys
 from youtube_dl.utils import DownloadError
 
 #How useful is this?
 stream_log = logging.getLogger('stream.threads')
-
-
-#Add hook for error chain?
-def cleanup(d):
-    if d['status']=='finished':
-        try:
-            shutil.move(d['filename'], 'finished/')
-            shutil.move(d['filename'].replace('.mp4','.info.json'),'finished/')
-            stream_log.info("File moved: %s", d['filename'])
-        except:
-            stream_log.error("File failed to move: %s", d['filename'])
 
 class StreamObject:
     def __init__(self, data, delta, caller):
@@ -28,6 +18,8 @@ class StreamObject:
         self._time = delta
         self.parent = caller
         self.ytID = self.streamInfo['yt_video_key']
+
+        self.cookie = ""
 
         #If this works, try changing the last bit
         self.logger = logging.getLogger('stream.threads.' + self.ytID)
@@ -42,16 +34,11 @@ class StreamObject:
             'writeinfojson': True,
             'logger': self.logger,
             'skip_download': False,     #REMOVE THIS, FOR TESTING
-            #'cookiefile': "/home/siorraidh/code/cookies.txt",
+            #'cookiefile': self.cookie,
             'socket_timeout': 75,
-            'progress_hooks':[cleanup],    #What is this notation?
+            'progress_hooks':[self.cleanup, self.errorHook],    #What is this notation?
             'fixup': 'detect_or_warn',   #Is this helpful at all?
             }
-
-        # r = requests.get("https://api.holotools.app/v1/videos/youtube/" + self.ytID)
-        # rfile = open("r.json", 'a')
-        # rfile.write(r.text)
-        # rfile.close()
 
         self.loop()
         #sever thread here?
@@ -73,6 +60,26 @@ class StreamObject:
                 self._time = -1
             except DownloadError as error:
                 self.errorCheck(error)
+
+    def cleanup(self, d):
+        if d['status']=='finished':
+            dataCheck = requests.get(self.URL + self.ytID)
+            self.streamInfo = dataCheck.json()
+            if self.streamInfo['live_end'] is None:
+                self.ytCall()
+                stream_log.error("File marked as completed before end!!!")
+            try:
+                shutil.move(d['filename'], 'finished/')
+                stream_log.info("File moved: %s", d['filename'])
+            except:
+                stream_log.error("File failed to move: %s", d['filename'])
+        if d['status']=='error':
+            stream_log.info("Error hook.")
+
+    #Should probably just add more options to cleanup
+    def errorHook(self, d):
+        if d['status']=='error':
+            stream_log.info("Error hook.")
 
     def errorCheck(self, error):
         strError = str(error)
@@ -111,3 +118,24 @@ class StreamObject:
         self._time = -1
 
 #https://www.youtube.com/watch?v=aVbLkjhdbSc test age
+
+if __name__ == "__main__":
+    passedUrl = sys.argv[1]
+
+    if len(passedUrl) == 11:   #Youtube video-ID length
+        ID = passedUrl
+    elif "youtu" in passedUrl:
+        ID = str.format(passedUrl[-11:])
+    else:
+        #Fix this to accept twitch requests
+        stream_log.error("Passed URL incorrectly formatted, aborting")
+        sys.exit(1)
+
+    URL = "https://api.holotools.app/v1/videos/youtube/"
+    OPTS = {"lookback_hours":"0", "max_upcoming_hours":"168"}
+    data = requests.get(URL + ID)
+    StreamObject(data.json(), 0, None)
+
+    # rfile = open("data.json", 'a')
+    # rfile.write(data.text)
+    # rfile.close()

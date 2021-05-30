@@ -34,7 +34,6 @@ class StreamCheck:
         self.keyList = ["archive",
         "asmr",
         "アーカイブ",
-        "立体音響",
         "録画は残しません"
         ]
         #Hold threads here, sever chat on exit, ytdl as needed?
@@ -94,6 +93,30 @@ class StreamCheck:
                     self.process(item, ytID)
                     continue
             self.excluded.add(item['yt_video_key'])
+
+    def pipeLoop(self):
+        FIFO = 'urlpipe'
+        try:
+            os.mkfifo(FIFO)
+        except OSError as osErr:
+            if osErr.errno != errno.EEXIST:
+                raise
+        while True:
+            with open(FIFO) as fifo:
+                input = fifo.readline().rstrip()
+                if len(input) < 10:
+                    log.warning('Input found, but less than 10 characters: %s', input)
+                    break
+                if len(input) == 11:
+                    log.info("Item found from pipe: %s", input)
+                    #add to queue
+                elif "youtu" in input:
+                    val = str.format(input[-11:])
+                    log.info("Item found from pipe: %s", input)
+                    #add to queue
+                else:
+                    log.warning("Item found from pipe: %s, not a Youtube value", input)
+                    #add to queue anyways
 
     def streamLoop(self):
         while True:
